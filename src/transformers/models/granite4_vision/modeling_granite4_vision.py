@@ -5,15 +5,11 @@ from typing import Optional, Union
 import numpy as np
 import torch
 from torch import nn
-import transformers
 from transformers import (
     AutoModel,
     LlavaNextForConditionalGeneration,
 )
-
-_V5 = int(transformers.__version__.split(".")[0]) >= 5
-if _V5:
-    from transformers.masking_utils import create_causal_mask
+from transformers.masking_utils import create_causal_mask
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 
@@ -89,8 +85,6 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
         logits_to_keep: Union[int, torch.Tensor] = 0,
         **kwargs: Unpack[TransformersKwargs],
     ) -> Union[tuple, LlavaNextCausalLMOutputWithPast]:
-        cache_position = kwargs.pop("cache_position", None)
-
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -104,7 +98,8 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
             else self.config.vision_feature_select_strategy
         )
 
-        model_kwargs = dict(
+        outputs = self.model(
+            input_ids,
             pixel_values=pixel_values,
             image_sizes=image_sizes,
             vision_feature_layer=vision_feature_layer,
@@ -117,10 +112,8 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=True,
+            **kwargs,
         )
-        if not _V5:
-            model_kwargs["cache_position"] = cache_position
-        outputs = self.model(input_ids, **model_kwargs, **kwargs)
 
         hidden_states = outputs.last_hidden_state
 
@@ -155,31 +148,18 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
         pixel_values=None,
         image_sizes=None,
         attention_mask=None,
-        cache_position=None,
         logits_to_keep=None,
         **kwargs,
     ):
-        if _V5:
-            is_first = kwargs.get("is_first_iteration", False)
-            model_inputs = super().prepare_inputs_for_generation(
-                input_ids,
-                past_key_values=past_key_values,
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                logits_to_keep=logits_to_keep,
-                **kwargs,
-            )
-        else:
-            is_first = cache_position[0] == 0 if cache_position is not None else True
-            model_inputs = super().prepare_inputs_for_generation(
-                input_ids,
-                past_key_values=past_key_values,
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                cache_position=cache_position,
-                logits_to_keep=logits_to_keep,
-                **kwargs,
-            )
+        is_first = kwargs.get("is_first_iteration", False)
+        model_inputs = super().prepare_inputs_for_generation(
+            input_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            logits_to_keep=logits_to_keep,
+            **kwargs,
+        )
         model_inputs = self._init_hybrid_cache(**model_inputs)
         if is_first:
             model_inputs["pixel_values"] = pixel_values
@@ -193,7 +173,6 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
         past_key_values=None,
         attention_mask=None,
         inputs_embeds=None,
-        cache_position=None,
         position_ids=None,
         use_cache=True,
         **kwargs,
@@ -201,15 +180,7 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
         """Handle HybridMambaAttentionDynamicCache for GraniteMoeHybrid language model."""
         empty_past_kv = past_key_values is None or (isinstance(past_key_values, DynamicCache) and past_key_values.get_seq_length() == 0)
 
-        if not empty_past_kv and not _V5:
-            if (
-                inputs_embeds is not None
-                or cache_position[-1] >= input_ids.shape[1]
-            ):
-                input_ids = input_ids[:, -cache_position.shape[0] :]
-            elif input_ids.shape[1] != cache_position.shape[0]:
-                input_ids = input_ids[:, cache_position]
-        elif use_cache and empty_past_kv:
+        if use_cache and empty_past_kv:
             past_key_values = DynamicCache(config=self.model.language_model.config)
 
         if attention_mask is not None and position_ids is None:
@@ -231,8 +202,6 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
                 "attention_mask": attention_mask,
             }
         )
-        if not _V5:
-            model_inputs["cache_position"] = cache_position
 
         for key, value in kwargs.items():
             if key not in model_inputs:
@@ -491,7 +460,6 @@ class Granite4VisionModel(LlavaNextPreTrainedModel):
         return_dict: Optional[bool] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Union[tuple, LlavaNextModelOutputWithPast]:
-        cache_position = kwargs.pop("cache_position", None)
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -538,41 +506,23 @@ class Granite4VisionModel(LlavaNextPreTrainedModel):
         # Custom forward pass with vision injection at specific LLM layers
         hidden_states = inputs_embeds * self.language_model.embedding_multiplier
 
-        if _V5:
-            if position_ids is None:
-                past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-                position_ids = torch.arange(
-                    past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
-                ).unsqueeze(0)
-            causal_mask = create_causal_mask(
-                config=self.language_model.config,
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-            )
-            if hasattr(self.language_model, '_update_mamba_mask') and any(
-                lt in getattr(self.language_model.config, 'layer_types', []) for lt in ('mamba', 'hybrid')
-            ):
-                mamba_mask = self.language_model._update_mamba_mask(attention_mask, past_key_values)
-            else:
-                mamba_mask = None
+        if position_ids is None:
+            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+            position_ids = torch.arange(
+                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+            ).unsqueeze(0)
+        causal_mask = create_causal_mask(
+            config=self.language_model.config,
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+        )
+        if hasattr(self.language_model, '_update_mamba_mask') and any(
+            lt in getattr(self.language_model.config, 'layer_types', []) for lt in ('mamba', 'hybrid')
+        ):
+            mamba_mask = self.language_model._update_mamba_mask(attention_mask, past_key_values)
         else:
-            if cache_position is None:
-                past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-                cache_position = torch.arange(
-                    past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
-                )
-            if position_ids is None:
-                position_ids = cache_position.unsqueeze(0)
-            causal_mask = self.language_model._update_causal_mask(
-                attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
-            )
-            if hasattr(self.language_model, '_update_mamba_mask') and any(
-                lt in getattr(self.language_model.config, 'layer_types', []) for lt in ('mamba', 'hybrid')
-            ):
-                mamba_mask = self.language_model._update_mamba_mask(attention_mask, cache_position)
-            else:
-                mamba_mask = None
+            mamba_mask = None
 
         position_embeddings = None
         if self.language_model.rotary_emb is not None:
@@ -596,24 +546,14 @@ class Granite4VisionModel(LlavaNextPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            layer_kwargs = dict(
+            hidden_states = decoder_layer(
+                hidden_states,
                 attention_mask=layer_mask,
                 past_key_values=past_key_values,
                 use_cache=use_cache,
                 position_embeddings=position_embeddings,
+                **kwargs,
             )
-            if not _V5:
-                layer_kwargs["output_attentions"] = output_attentions
-                layer_kwargs["cache_position"] = cache_position
-            layer_outputs = decoder_layer(hidden_states, **layer_kwargs, **kwargs)
-
-            # v5 decoder layers return a bare tensor; v4 returns a tuple
-            if isinstance(layer_outputs, torch.Tensor):
-                hidden_states = layer_outputs
-            else:
-                hidden_states = layer_outputs[0]
-                if output_attentions and layer_outputs[1] is not None:
-                    all_self_attns += (layer_outputs[1],)
 
         hidden_states = self.language_model.norm(hidden_states)
 

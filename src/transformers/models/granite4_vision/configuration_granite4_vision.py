@@ -32,30 +32,29 @@ from ..auto import CONFIG_MAPPING, AutoConfig
 @strict
 class Granite4VisionConfig(PreTrainedConfig):
     r"""
-    image_grid_pinpoints (`List`, *optional*, defaults to `[[336, 672], [672, 336], [672, 672], [1008, 336], [336, 1008]]`):
-        A list of possible resolutions to use for processing high resolution images. Each item in the list should be a tuple or list
-        of the form `(height, width)`.
-
-    Example:
-
-    ```python
-    >>> from transformers import Granite4VisionForConditionalGeneration, Granite4VisionConfig, CLIPVisionConfig, LlamaConfig
-
-    >>> # Initializing a CLIP-vision config
-    >>> vision_config = CLIPVisionConfig()
-
-    >>> # Initializing a Llama config
-    >>> text_config = LlamaConfig()
-
-    >>> # Initializing a Llava-Next llava-hf/llava-v1.6-mistral-7b-hf style configuration
-    >>> configuration = Granite4VisionConfig(vision_config, text_config)
-
-    >>> # Initializing a model from the llava-hf/llava-v1.6-mistral-7b-hf style configuration
-    >>> model = Granite4VisionForConditionalGeneration(configuration)
-
-    >>> # Accessing the model configuration
-    >>> configuration = model.config
-    ```"""
+    downsample_rate (`str`, *optional*):
+        Fractional downsample rate for the Window Q-Former projector, e.g. `"1/4"` or `"3/8"`.
+        The numerator is the query window side, the denominator is the key window side.
+    use_image_newline_parameter (`bool`, *optional*, defaults to `True`):
+        Whether to add a learnable newline embedding between image patch rows.
+    deepstack_layer_map (`list`, *optional*):
+        List of `[vision_layer_idx, llm_layer_idx]` pairs. Features from each vision encoder layer
+        are projected and injected at the corresponding LLM decoder layer during forward pass.
+    use_spatial_sampling (`bool`, *optional*, defaults to `False`):
+        Whether to enable spatial offset sampling, which creates 4 groups (TL, TR, BL, BR) from
+        a single vision layer, each injected at a different LLM layer.
+    spatial_stride (`int`, *optional*, defaults to `2`):
+        Stride for spatial offset sampling blocks.
+    spatial_vision_layer (`int`, *optional*, defaults to `-1`):
+        Index of the vision encoder layer used for spatial sampling.
+    spatial_target_layers (`list`, *optional*, defaults to `[0, 10, 20, 30]`):
+        Target LLM layers for the 4 spatial offset groups.
+    projector_dropout (`float`, *optional*, defaults to `0.1`):
+        Dropout probability in the Window Q-Former projector.
+    image_grid_pinpoints (`list`, *optional*):
+        A list of possible resolutions to use for processing high resolution images. Each item in the list should be a
+        tuple or list of the form `(height, width)`.
+    """
 
     model_type = "granite4_vision"
     attribute_map = {"image_token_id": "image_token_index"}

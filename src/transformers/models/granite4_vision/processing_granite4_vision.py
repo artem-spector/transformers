@@ -61,12 +61,14 @@ class Granite4VisionProcessor(ProcessorMixin):
             Patch size from the vision tower.
         vision_feature_select_strategy (`str`, *optional*):
             The feature selection strategy used to select the vision feature from the vision backbone.
-            Should be same as in model's config
+            Should be same as in model's config.
         image_token (`str`, *optional*, defaults to `"<image>"`):
             Special token used to denote image location.
-        num_additional_image_tokens (`int`, *optional*, defaults to 0):
-            Number of additional tokens added to the image embeddings, such as CLS (+1). If the backbone has no CLS or other
-            extra tokens appended, no need to set this arg.
+        num_additional_image_tokens (`int`, *optional*, defaults to `0`):
+            Number of additional tokens added to the image embeddings, such as CLS (+1).
+        downsample_rate (`str`, *optional*):
+            Fractional downsample rate (e.g. `"1/4"`), used to adjust the number of image tokens
+            when computing token counts for padding/truncation.
         """
         self.patch_size = patch_size
         self.num_additional_image_tokens = num_additional_image_tokens

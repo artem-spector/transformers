@@ -72,8 +72,6 @@ class Granite4VisionConfig(LlavaNextConfig):
     use_spatial_sampling (`bool`, *optional*, defaults to `False`):
         Whether to enable spatial offset sampling, which creates 4 groups (TL, TR, BL, BR) from
         a single vision layer, each injected at a different LLM layer.
-    spatial_stride (`int`, *optional*, defaults to `2`):
-        Stride for spatial offset sampling blocks.
     spatial_vision_layer (`int`, *optional*, defaults to `-1`):
         Index of the vision encoder layer used for spatial sampling.
     spatial_target_layers (`list`, *optional*, defaults to `[0, 10, 20, 30]`):
@@ -91,7 +89,6 @@ class Granite4VisionConfig(LlavaNextConfig):
     use_image_newline_parameter: bool = True
     deepstack_layer_map: list | None = None
     use_spatial_sampling: bool = False
-    spatial_stride: int = 2
     spatial_vision_layer: int = -1
     spatial_target_layers: list | None = None
     projector_dropout: float = 0.1
@@ -175,6 +172,10 @@ class Granite4VisionProcessor(LlavaNextProcessor):
 # ── Model ───────────────────────────────────────────────────────────────────
 
 
+class Granite4VisionPreTrainedModel(LlavaNextPreTrainedModel):
+    pass
+
+
 class Granite4VisionModel(LlavaNextModel):
     config_class = Granite4VisionConfig
 
@@ -186,6 +187,10 @@ class Granite4VisionModel(LlavaNextModel):
 
         self.spatial_projectors = None
         self.downsample_rate = config.downsample_rate
+        self.projector_dropout = config.projector_dropout
+        # Inherited from LlavaNextConfig (unused — kept for config compatibility)
+        self.projector_hidden_act = config.projector_hidden_act
+        self.multimodal_projector_bias = config.multimodal_projector_bias
 
         # Deepstack projectors: one per (vision_layer, llm_layer) pair
         self.layerwise_projectors = nn.ModuleList(
@@ -680,6 +685,7 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
 __all__ = [
     "Granite4VisionConfig",
     "Granite4VisionProcessor",
+    "Granite4VisionPreTrainedModel",
     "Granite4VisionModel",
     "Granite4VisionForConditionalGeneration",
 ]

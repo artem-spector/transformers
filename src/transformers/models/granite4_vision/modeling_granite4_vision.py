@@ -27,7 +27,6 @@ import torch
 from torch import nn
 
 from ... import initialization as init
-from ...activations import ACT2FN
 from ...cache_utils import Cache, DynamicCache
 from ...generation.utils import GenerationMixin
 from ...image_processing_utils import select_best_resolution
@@ -95,28 +94,6 @@ class Granite4VisionCausalLMOutputWithPast(ModelOutput):
     hidden_states: tuple[torch.FloatTensor] | None = None
     attentions: tuple[torch.FloatTensor] | None = None
     image_hidden_states: torch.FloatTensor | None = None
-
-
-class Granite4VisionMultiModalProjector(nn.Module):
-    def __init__(self, config: Granite4VisionConfig):
-        super().__init__()
-        # We have hidden_size * the number of vision feature layers
-        num_feature_layers = 1 if isinstance(config.vision_feature_layer, int) else len(config.vision_feature_layer)
-        self.linear_1 = nn.Linear(
-            config.vision_config.hidden_size * num_feature_layers,
-            config.text_config.hidden_size,
-            bias=config.multimodal_projector_bias,
-        )
-        self.act = ACT2FN[config.projector_hidden_act]
-        self.linear_2 = nn.Linear(
-            config.text_config.hidden_size, config.text_config.hidden_size, bias=config.multimodal_projector_bias
-        )
-
-    def forward(self, image_features):
-        hidden_states = self.linear_1(image_features)
-        hidden_states = self.act(hidden_states)
-        hidden_states = self.linear_2(hidden_states)
-        return hidden_states
 
 
 @auto_docstring
@@ -275,6 +252,10 @@ class Granite4VisionModel(Granite4VisionPreTrainedModel):
 
         self.spatial_projectors = None
         self.downsample_rate = config.downsample_rate
+        self.projector_dropout = config.projector_dropout
+        # Inherited from LlavaNextConfig (unused — kept for config compatibility)
+        self.projector_hidden_act = config.projector_hidden_act
+        self.multimodal_projector_bias = config.multimodal_projector_bias
 
         # Deepstack projectors: one per (vision_layer, llm_layer) pair
         self.layerwise_projectors = nn.ModuleList(
@@ -892,4 +873,4 @@ class Granite4VisionForConditionalGeneration(Granite4VisionPreTrainedModel, Gene
         return model_inputs
 
 
-__all__ = ["Granite4VisionModel", "Granite4VisionForConditionalGeneration"]
+__all__ = ["Granite4VisionPreTrainedModel", "Granite4VisionModel", "Granite4VisionForConditionalGeneration"]

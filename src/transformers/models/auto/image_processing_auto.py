@@ -132,6 +132,7 @@ else:
             ("glm_image", {"torchvision": "GlmImageImageProcessor", "pil": "GlmImageImageProcessorPil"}),
             ("glpn", {"torchvision": "GLPNImageProcessor", "pil": "GLPNImageProcessorPil"}),
             ("got_ocr2", {"torchvision": "GotOcr2ImageProcessor", "pil": "GotOcr2ImageProcessorPil"}),
+            ("granite4_vision", {"torchvision": "Granite4VisionImageProcessor", "pil": "Granite4VisionImageProcessorPil"}),
             (
                 "grounding-dino",
                 {"torchvision": "GroundingDinoImageProcessor", "pil": "GroundingDinoImageProcessorPil"},

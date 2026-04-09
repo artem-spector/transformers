@@ -22,9 +22,10 @@ from torch import nn
 
 from ...cache_utils import Cache, DynamicCache
 from ...image_processing_utils import select_best_resolution
+from ...image_utils import ImageInput
 from ...masking_utils import create_causal_mask
 from ...modeling_flash_attention_utils import FlashAttentionKwargs
-from ...processing_utils import Unpack
+from ...processing_utils import ImagesKwargs, Unpack
 from ...generation.utils import GenerationMixin
 from ...utils import TransformersKwargs, can_return_tuple, logging
 from ..auto import AutoModel
@@ -39,10 +40,42 @@ from ..llava_next.modeling_llava_next import (
     image_size_to_num_patches,
     unpad_image,
 )
+from ..llava_next.image_processing_llava_next import LlavaNextImageProcessor, LlavaNextImageProcessorKwargs
+from ..llava_next.image_processing_pil_llava_next import LlavaNextImageProcessorPil
 from ..llava_next.processing_llava_next import LlavaNextProcessor
 from .downsampling_granite4_vision import WindowQFormerDownsampler
 
 logger = logging.get_logger(__name__)
+
+
+# ── Image processing ──────────────────────────────────────────────────────
+
+
+class Granite4VisionImageProcessorKwargs(LlavaNextImageProcessorKwargs):
+    pass
+
+
+class Granite4VisionImageProcessor(LlavaNextImageProcessor):
+    valid_kwargs = Granite4VisionImageProcessorKwargs
+
+    def preprocess(
+        self, images: ImageInput | list[ImageInput], *args, **kwargs: Unpack[Granite4VisionImageProcessorKwargs]
+    ) -> "BatchFeature":
+        return super().preprocess(images, *args, **kwargs)
+
+
+# Re-define Kwargs inheriting from ImagesKwargs for PIL file inlining (same pattern as llava_onevision)
+class Granite4VisionImageProcessorKwargs(ImagesKwargs, total=False):
+    image_grid_pinpoints: list[list[int]]
+
+
+class Granite4VisionImageProcessorPil(LlavaNextImageProcessorPil):
+    valid_kwargs = Granite4VisionImageProcessorKwargs
+
+    def preprocess(
+        self, images: ImageInput | list[ImageInput], *args, **kwargs: Unpack[Granite4VisionImageProcessorKwargs]
+    ) -> "BatchFeature":
+        return super().preprocess(images, *args, **kwargs)
 
 
 # ── Output classes ──────────────────────────────────────────────────────────
@@ -686,6 +719,8 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
 
 __all__ = [
     "Granite4VisionConfig",
+    "Granite4VisionImageProcessor",
+    "Granite4VisionImageProcessorPil",
     "Granite4VisionProcessor",
     "Granite4VisionPreTrainedModel",
     "Granite4VisionModel",

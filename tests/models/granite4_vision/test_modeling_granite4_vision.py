@@ -16,8 +16,10 @@
 import unittest
 
 import pytest
+import requests
 
 from transformers import (
+    AutoProcessor,
     CLIPVisionConfig,
     GraniteConfig,
     Granite4VisionConfig,
@@ -27,7 +29,9 @@ from transformers import (
     is_vision_available,
 )
 from transformers.testing_utils import (
+    cleanup,
     require_torch,
+    slow,
     torch_device,
 )
 
@@ -40,7 +44,7 @@ if is_torch_available():
 
 
 if is_vision_available():
-    pass
+    from PIL import Image
 
 
 class Granite4VisionModelTester(VLMModelTester):
@@ -181,3 +185,87 @@ class Granite4VisionModelTest(VLMModelTest, unittest.TestCase):
     @unittest.skip("Blip2QFormerModel in WindowQFormerDownsampler does not support SDPA dispatch")
     def test_can_set_attention_dynamically_composite_model(self):
         pass
+
+
+@require_torch
+class Granite4VisionIntegrationTest(unittest.TestCase):
+    model_id = "ibm-granite/granite-4.0-3b-vision"
+
+    def setUp(self):
+        self.processor = AutoProcessor.from_pretrained(self.model_id)
+        url = "http://images.cocodataset.org/val2017/000000039769.jpg"
+        self.image = Image.open(requests.get(url, stream=True).raw)
+        self.prompt_template = "<|user|>\n<image>\n{question}\n<|assistant|>\n"
+
+    def tearDown(self):
+        cleanup(torch_device, gc_collect=True)
+
+    @slow
+    def test_small_model_integration_test(self):
+        model = Granite4VisionForConditionalGeneration.from_pretrained(
+            self.model_id, torch_dtype=torch.bfloat16
+        ).to(torch_device)
+
+        prompt = self.prompt_template.format(question="Describe this image briefly.")
+        inputs = self.processor(text=prompt, images=self.image, return_tensors="pt").to(model.device)
+        output = model.generate(**inputs, max_new_tokens=30)
+
+        EXPECTED_DECODED_TEXT = "<|user|>\n\nDescribe this image briefly.\n<|assistant|>\nThe image features two cats resting on a bright pink blanket. The cat on the left is lying on its side, stretching out with its body parallel to"  # fmt: skip
+        self.assertEqual(
+            self.processor.decode(output[0], skip_special_tokens=True),
+            EXPECTED_DECODED_TEXT,
+        )
+
+    @slow
+    def test_small_model_integration_test_batch(self):
+        model = Granite4VisionForConditionalGeneration.from_pretrained(
+            self.model_id, torch_dtype=torch.bfloat16
+        ).to(torch_device)
+
+        url2 = "http://images.cocodataset.org/val2017/000000001000.jpg"
+        image2 = Image.open(requests.get(url2, stream=True).raw)
+
+        prompt = self.prompt_template.format(question="What do you see in this image?")
+        inputs = self.processor(
+            text=[prompt, prompt],
+            images=[self.image, image2],
+            return_tensors="pt",
+            padding=True,
+        ).to(model.device)
+        output = model.generate(**inputs, max_new_tokens=30)
+
+        EXPECTED_DECODED_TEXT = [
+            "<|user|>\n\nWhat do you see in this image?\n<|assistant|>\nThe image depicts two cats resting on a bright pink blanket that covers a couch. The cat on the left is lying on its side, stretching out with",
+            "<|user|>\n\nWhat do you see in this image?\n<|assistant|>\nThe image depicts a group of 14 children and two adults standing on a tennis court, posing for a photo. The court surface appears to be a",
+        ]  # fmt: skip
+        self.assertEqual(
+            self.processor.batch_decode(output, skip_special_tokens=True),
+            EXPECTED_DECODED_TEXT,
+        )
+
+    @slow
+    def test_small_model_integration_test_batch_matches_single(self):
+        model = Granite4VisionForConditionalGeneration.from_pretrained(
+            self.model_id, torch_dtype=torch.bfloat16
+        ).to(torch_device)
+
+        prompt = self.prompt_template.format(question="What do you see in this image?")
+
+        # Single inference
+        inputs_single = self.processor(text=prompt, images=self.image, return_tensors="pt").to(model.device)
+        output_single = model.generate(**inputs_single, max_new_tokens=30)
+        decoded_single = self.processor.decode(output_single[0], skip_special_tokens=True)
+
+        # Batch inference (same image as first in batch)
+        url2 = "http://images.cocodataset.org/val2017/000000001000.jpg"
+        image2 = Image.open(requests.get(url2, stream=True).raw)
+        inputs_batch = self.processor(
+            text=[prompt, prompt],
+            images=[self.image, image2],
+            return_tensors="pt",
+            padding=True,
+        ).to(model.device)
+        output_batch = model.generate(**inputs_batch, max_new_tokens=30)
+        decoded_batch = self.processor.batch_decode(output_batch, skip_special_tokens=True)
+
+        self.assertEqual(decoded_single, decoded_batch[0])

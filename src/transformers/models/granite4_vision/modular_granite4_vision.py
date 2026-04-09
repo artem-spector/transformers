@@ -463,7 +463,7 @@ class Granite4VisionModel(LlavaNextModel):
             position_embeddings = self.language_model.rotary_emb(hidden_states, position_ids)
 
         all_hidden_states = () if output_hidden_states else None
-        all_self_attns = () if output_attentions else None
+        all_self_attns = None
 
         # Layer-by-layer forward with vision injection
         for layer_idx, decoder_layer in enumerate(self.language_model.layers):
@@ -474,12 +474,12 @@ class Granite4VisionModel(LlavaNextModel):
                         vision_mask, (hidden_states[vision_mask] + features_for_layer.flatten()).view(-1)
                     )
 
-            layer_mask = mamba_mask if decoder_layer.layer_type == "mamba" else causal_mask
+            layer_mask = mamba_mask if getattr(decoder_layer, "layer_type", None) == "mamba" else causal_mask
 
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            hidden_states = decoder_layer(
+            layer_outputs = decoder_layer(
                 hidden_states,
                 attention_mask=layer_mask,
                 past_key_values=past_key_values,
@@ -487,6 +487,8 @@ class Granite4VisionModel(LlavaNextModel):
                 position_embeddings=position_embeddings,
                 **kwargs,
             )
+
+            hidden_states = layer_outputs[0] if isinstance(layer_outputs, tuple) else layer_outputs
 
         hidden_states = self.language_model.norm(hidden_states)
 
@@ -658,10 +660,10 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
         if attention_mask is not None and position_ids is None:
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
-            if not empty_past_kv:
+            if not empty_past_kv and input_ids is not None:
                 position_ids = position_ids[:, -input_ids.shape[1] :]
 
-        if inputs_embeds is not None and empty_past_kv:
+        if inputs_embeds is not None and (input_ids is None or empty_past_kv):
             model_inputs = {"inputs_embeds": inputs_embeds}
         else:
             model_inputs = {"input_ids": input_ids.contiguous()}

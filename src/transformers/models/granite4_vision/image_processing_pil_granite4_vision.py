@@ -38,6 +38,12 @@ from ...utils import TensorType, auto_docstring
 
 # Re-define Kwargs inheriting from ImagesKwargs for PIL file inlining (same pattern as llava_onevision)
 class Granite4VisionImageProcessorKwargs(ImagesKwargs, total=False):
+    r"""
+    image_grid_pinpoints (`list[list[int]]`, *optional*):
+        A list of possible resolutions to use for processing high resolution images. The best resolution is selected
+        based on the original size of the image.
+    """
+
     image_grid_pinpoints: list[list[int]]
 
 
@@ -66,7 +72,7 @@ class Granite4VisionImageProcessorPil(PilBackend):
     @auto_docstring
     def preprocess(
         self, images: ImageInput | list[ImageInput], *args, **kwargs: Unpack[Granite4VisionImageProcessorKwargs]
-    ) -> "BatchFeature":
+    ) -> BatchFeature:
         return super().preprocess(images, *args, **kwargs)
 
     def _get_padding_size(self, original_resolution: tuple, target_resolution: tuple):

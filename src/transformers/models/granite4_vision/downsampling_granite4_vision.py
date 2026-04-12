@@ -1,13 +1,16 @@
-import torch
-from torch import nn
 import math
 from fractions import Fraction
+
+import torch
+from torch import nn
+
 from transformers.models.blip_2.configuration_blip_2 import Blip2QFormerConfig
 from transformers.models.blip_2.modeling_blip_2 import Blip2QFormerModel
 
 
 class InterpolateDownsampler:
     """Spatial downsampling via area interpolation."""
+
     def __init__(self, config, mode="area"):
         self.orig_image_side = config.vision_config.image_size // config.vision_config.patch_size
         self.new_image_side = int(self.orig_image_side * Fraction(config.downsample_rate))
@@ -16,12 +19,13 @@ class InterpolateDownsampler:
     def __call__(self, image_features):
         batch_size, _, dim = image_features.size()
         up_shape = [batch_size] + [self.orig_image_side] * 2 + [dim]
-        large_image_permuted = image_features.view(up_shape).permute(0,3,1,2)
+        large_image_permuted = image_features.view(up_shape).permute(0, 3, 1, 2)
         small_image_permuted = torch.nn.functional.interpolate(
-                large_image_permuted, size=(self.new_image_side, self.new_image_side),
-                mode=self.mode,
+            large_image_permuted,
+            size=(self.new_image_side, self.new_image_side),
+            mode=self.mode,
         )
-        final = small_image_permuted.permute(0,2,3,1).flatten(1,2)
+        final = small_image_permuted.permute(0, 2, 3, 1).flatten(1, 2)
         return final
 
 
@@ -30,6 +34,7 @@ class SpatialOffsetDownsampler:
     Downsampler that samples one position from each 2x2 block across the image.
     Maintains full spatial coverage while creating local continuity.
     """
+
     def __init__(self, config, offset=0):
         """
         Args:
@@ -48,9 +53,7 @@ class SpatialOffsetDownsampler:
         features_2d = image_features.reshape(batch_size, self.orig_image_side, self.orig_image_side, hidden_dim)
 
         n_blocks = self.new_image_side
-        features_blocks = features_2d.reshape(
-            batch_size, n_blocks, 2, n_blocks, 2, hidden_dim
-        )
+        features_blocks = features_2d.reshape(batch_size, n_blocks, 2, n_blocks, 2, hidden_dim)
 
         sampled = features_blocks[:, :, self.offset_h, :, self.offset_w, :]
         sampled = sampled.reshape(batch_size, -1, hidden_dim)
@@ -60,6 +63,7 @@ class SpatialOffsetDownsampler:
 
 class WindowQFormerDownsampler(nn.Module):
     """Window-based QFormer downsampler that processes image patches in windows."""
+
     def __init__(self, config, spatial_offset=None):
         super().__init__()
         llm_hidden_size = config.text_config.hidden_size
@@ -87,11 +91,11 @@ class WindowQFormerDownsampler(nn.Module):
         self.image_side = config.vision_config.image_size // config.vision_config.patch_size
         q, w = config.downsample_rate.split("/")
         self.query_side, self.window_side = int(q), int(w)
-        self.query_length = self.query_side ** 2
+        self.query_length = self.query_side**2
         embed_std = 1 / math.sqrt(vision_hidden_size)
         self.norm = nn.LayerNorm(vision_hidden_size, eps=1e-6)
         self.query = nn.Parameter(torch.randn(1, self.query_length, vision_hidden_size) * embed_std)
-        self.image_positions = nn.Parameter(torch.randn(1, self.window_side ** 2, vision_hidden_size) * embed_std)
+        self.image_positions = nn.Parameter(torch.randn(1, self.window_side**2, vision_hidden_size) * embed_std)
         self.out_linear = nn.Linear(vision_hidden_size, llm_hidden_size, bias=True)
 
     def _win(self, x, side, win):
@@ -104,9 +108,9 @@ class WindowQFormerDownsampler(nn.Module):
         return (
             x.view(B, side, side, C)
             .view(B, n, win, n, win, C)
-            .transpose(2, 3)          # (B, n, n, win, win, C)
-            .flatten(0, 2)            # (B*n*n, win, win, C)
-            .flatten(1, 2)            # (B*n*n, win*win, C)
+            .transpose(2, 3)  # (B, n, n, win, win, C)
+            .flatten(0, 2)  # (B*n*n, win, win, C)
+            .flatten(1, 2)  # (B*n*n, win*win, C)
         )
 
     def _unwin(self, xw, n, win):
@@ -119,7 +123,7 @@ class WindowQFormerDownsampler(nn.Module):
         side = n * win
         return (
             xw.view(B, n, n, win, win, C)
-            .transpose(2, 3)                 # (B, n, win, n, win, C)
+            .transpose(2, 3)  # (B, n, win, n, win, C)
             .contiguous()
             .view(B, side, side, C)
             .flatten(1, 2)
@@ -127,7 +131,7 @@ class WindowQFormerDownsampler(nn.Module):
 
     def forward(self, image_features):
         B, HW, C = image_features.shape
-        assert HW == self.image_side * self.image_side
+        assert self.image_side * self.image_side == HW
         n = self.image_side // self.window_side
         image_features = self.norm(image_features)
         enc = self._win(image_features, self.image_side, self.window_side)

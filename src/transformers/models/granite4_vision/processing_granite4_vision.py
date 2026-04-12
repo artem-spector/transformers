@@ -20,8 +20,7 @@
 
 from fractions import Fraction
 
-from ...feature_extraction_utils import BatchFeature
-from ...image_processing_utils import select_best_resolution
+from ...image_processing_utils import BatchFeature, select_best_resolution
 from ...image_utils import ImageInput, SizeDict, get_image_size, to_numpy_array
 from ...processing_utils import MultiModalData, ProcessingKwargs, ProcessorMixin, Unpack
 from ...tokenization_utils_base import PreTokenizedInput, TextInput

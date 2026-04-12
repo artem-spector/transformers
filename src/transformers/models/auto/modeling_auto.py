@@ -210,6 +210,7 @@ MODEL_MAPPING_NAMES = OrderedDict(
         ("gpt_oss", "GptOssModel"),
         ("gptj", "GPTJModel"),
         ("granite", "GraniteModel"),
+        ("granite4_vision", "Granite4VisionModel"),
         ("granitemoe", "GraniteMoeModel"),
         ("granitemoehybrid", "GraniteMoeHybridModel"),
         ("granitemoeshared", "GraniteMoeSharedModel"),

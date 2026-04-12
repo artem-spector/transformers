@@ -12,24 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
 from fractions import Fraction
-from typing import Optional, Union
 
 import numpy as np
 import torch
 from torch import nn
 
 from ...cache_utils import Cache, DynamicCache
-from ...image_processing_utils import select_best_resolution
+from ...generation.utils import GenerationMixin
+from ...image_processing_utils import BatchFeature, select_best_resolution
 from ...image_utils import ImageInput
 from ...masking_utils import create_causal_mask
 from ...modeling_flash_attention_utils import FlashAttentionKwargs
 from ...processing_utils import ImagesKwargs, Unpack
-from ...generation.utils import GenerationMixin
 from ...utils import TransformersKwargs, can_return_tuple, logging
-from ..auto import AutoModel
 from ..llava_next.configuration_llava_next import LlavaNextConfig
+from ..llava_next.image_processing_llava_next import LlavaNextImageProcessor, LlavaNextImageProcessorKwargs
+from ..llava_next.image_processing_pil_llava_next import LlavaNextImageProcessorPil
 from ..llava_next.modeling_llava_next import (
     LlavaNextCausalLMOutputWithPast,
     LlavaNextForConditionalGeneration,
@@ -40,10 +39,9 @@ from ..llava_next.modeling_llava_next import (
     image_size_to_num_patches,
     unpad_image,
 )
-from ..llava_next.image_processing_llava_next import LlavaNextImageProcessor, LlavaNextImageProcessorKwargs
-from ..llava_next.image_processing_pil_llava_next import LlavaNextImageProcessorPil
 from ..llava_next.processing_llava_next import LlavaNextProcessor
 from .downsampling_granite4_vision import WindowQFormerDownsampler
+
 
 logger = logging.get_logger(__name__)
 
@@ -60,12 +58,18 @@ class Granite4VisionImageProcessor(LlavaNextImageProcessor):
 
     def preprocess(
         self, images: ImageInput | list[ImageInput], *args, **kwargs: Unpack[Granite4VisionImageProcessorKwargs]
-    ) -> "BatchFeature":
+    ) -> BatchFeature:
         return super().preprocess(images, *args, **kwargs)
 
 
 # Re-define Kwargs inheriting from ImagesKwargs for PIL file inlining (same pattern as llava_onevision)
 class Granite4VisionImageProcessorKwargs(ImagesKwargs, total=False):
+    r"""
+    image_grid_pinpoints (`list[list[int]]`, *optional*):
+        A list of possible resolutions to use for processing high resolution images. The best resolution is selected
+        based on the original size of the image.
+    """
+
     image_grid_pinpoints: list[list[int]]
 
 
@@ -74,7 +78,7 @@ class Granite4VisionImageProcessorPil(LlavaNextImageProcessorPil):
 
     def preprocess(
         self, images: ImageInput | list[ImageInput], *args, **kwargs: Unpack[Granite4VisionImageProcessorKwargs]
-    ) -> "BatchFeature":
+    ) -> BatchFeature:
         return super().preprocess(images, *args, **kwargs)
 
 
@@ -305,8 +309,8 @@ class Granite4VisionModel(LlavaNextModel):
         self,
         pixel_values: torch.FloatTensor,
         image_sizes: torch.Tensor,
-        vision_feature_layer: Optional[Union[int, list[int]]] = None,
-        vision_feature_select_strategy: Optional[str] = None,
+        vision_feature_layer: int | list[int] | None = None,
+        vision_feature_select_strategy: str | None = None,
     ):
         """
         Extract image features via deepstack (multi-layer) and spatial sampling projections.
@@ -337,9 +341,7 @@ class Granite4VisionModel(LlavaNextModel):
         ]
 
         if pixel_values.dim() == 5:
-            _pixel_values_list = [
-                pix_val[:num_patch] for pix_val, num_patch in zip(pixel_values, image_num_patches)
-            ]
+            _pixel_values_list = [pix_val[:num_patch] for pix_val, num_patch in zip(pixel_values, image_num_patches)]
             pixel_values = torch.cat(_pixel_values_list, dim=0)
         elif pixel_values.dim() != 4:
             raise ValueError(f"pixel_values of shape {pixel_values.shape}, expect to be of 4 or 5 dimensions")
@@ -414,21 +416,21 @@ class Granite4VisionModel(LlavaNextModel):
     @can_return_tuple
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        pixel_values: Optional[torch.FloatTensor] = None,
-        image_sizes: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Cache] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        vision_feature_layer: Optional[Union[int, list[int]]] = None,
-        vision_feature_select_strategy: Optional[str] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        input_ids: torch.LongTensor | None = None,
+        pixel_values: torch.FloatTensor | None = None,
+        image_sizes: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        vision_feature_layer: int | list[int] | None = None,
+        vision_feature_select_strategy: str | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
         **kwargs: Unpack[FlashAttentionKwargs],
-    ) -> Union[tuple, Granite4VisionModelOutputWithPast]:
+    ) -> tuple | Granite4VisionModelOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -563,7 +565,7 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
     def generate(self, *args, **kwargs) -> torch.LongTensor:
         # When loaded with a LoRA adapter, disable the adapter for text-only
         # inputs (no pixel_values) so the base LLM runs standalone.
-        pixel_values = kwargs.get("pixel_values", None)
+        pixel_values = kwargs.get("pixel_values")
         if hasattr(self, "_hf_peft_config_loaded") and self._hf_peft_config_loaded:
             if pixel_values is not None:
                 self.enable_adapters()
@@ -574,22 +576,22 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
     @can_return_tuple
     def forward(
         self,
-        input_ids: Optional[torch.LongTensor] = None,
-        pixel_values: Optional[torch.FloatTensor] = None,
-        image_sizes: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Cache] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        vision_feature_layer: Optional[Union[int, list[int]]] = None,
-        vision_feature_select_strategy: Optional[str] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        logits_to_keep: Union[int, torch.Tensor] = 0,
+        input_ids: torch.LongTensor | None = None,
+        pixel_values: torch.FloatTensor | None = None,
+        image_sizes: torch.LongTensor | None = None,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        past_key_values: Cache | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        vision_feature_layer: int | list[int] | None = None,
+        vision_feature_select_strategy: str | None = None,
+        labels: torch.LongTensor | None = None,
+        use_cache: bool | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        logits_to_keep: int | torch.Tensor = 0,
         **kwargs: Unpack[TransformersKwargs],
-    ) -> Union[tuple, Granite4VisionCausalLMOutputWithPast]:
+    ) -> tuple | Granite4VisionCausalLMOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states

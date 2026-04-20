@@ -109,9 +109,11 @@ class Granite4VisionConfig(LlavaNextConfig):
     use_spatial_sampling (`bool`, *optional*, defaults to `False`):
         Whether to enable spatial offset sampling, which creates 4 groups (TL, TR, BL, BR) from
         a single vision layer, each injected at a different LLM layer.
+    spatial_stride (`int`, *optional*, defaults to `2`):
+        Stride for spatial offset sampling (block size for the 2×2 offset grid).
     spatial_vision_layer (`int`, *optional*, defaults to `-1`):
         Index of the vision encoder layer used for spatial sampling.
-    spatial_target_layers (`list`, *optional*, defaults to `[0, 10, 20, 30]`):
+    spatial_target_layers (`list`, *optional*, defaults to `[12, 15, 18, 21]`):
         Target LLM layers for the 4 spatial offset groups.
     projector_dropout (`float`, *optional*, defaults to `0.1`):
         Dropout probability in the Window Q-Former projector.
@@ -126,6 +128,7 @@ class Granite4VisionConfig(LlavaNextConfig):
     use_image_newline_parameter: bool = True
     deepstack_layer_map: list | None = None
     use_spatial_sampling: bool = False
+    spatial_stride: int = 2
     spatial_vision_layer: int = -1
     spatial_target_layers: list | None = None
     projector_dropout: float = 0.1
@@ -135,7 +138,7 @@ class Granite4VisionConfig(LlavaNextConfig):
             self.deepstack_layer_map = [(int(v), int(l)) for v, l in self.deepstack_layer_map]
 
         if self.spatial_target_layers is None:
-            self.spatial_target_layers = [0, 10, 20, 30]
+            self.spatial_target_layers = [12, 15, 18, 21]
 
         super().__post_init__(**kwargs)
 
@@ -553,12 +556,16 @@ class Granite4VisionForConditionalGeneration(LlavaNextForConditionalGeneration):
         self.model = Granite4VisionModel(config)
 
     def merge_lora_adapters(self):
-        """Merge LoRA adapter weights into base weights in-place and disable adapter toggling."""
+        """Merge LoRA adapter weights into base weights and replace PEFT wrappers with base layers."""
         from peft.tuners.tuners_utils import BaseTunerLayer
 
         for _, module in self.named_modules():
-            if isinstance(module, BaseTunerLayer):
-                module.merge()
+            for attr_name, child in list(module.named_children()):
+                if isinstance(child, BaseTunerLayer):
+                    child.merge()
+                    setattr(module, attr_name, child.get_base_layer())
+        if hasattr(self, "peft_config"):
+            del self.peft_config
         self._hf_peft_config_loaded = False
         return self
 

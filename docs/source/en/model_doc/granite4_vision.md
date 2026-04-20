@@ -25,7 +25,7 @@ rendered properly in your Markdown viewer.
 
 # Granite4Vision
 
-[Granite-4.0-3B-Vision](https://huggingface.co/ibm-granite/granite-4.0-3b-vision) is a vision-language model from IBM Research designed for enterprise-grade document data extraction. It specializes in chart extraction (Chart2CSV, Chart2Summary, Chart2Code), table extraction (JSON, HTML, OTSL), and semantic key-value pair extraction.
+[Granite Vision 4.1](https://huggingface.co/ibm-granite/granite-vision-4.1-4b) is a vision-language model from IBM Research designed for enterprise-grade document data extraction. It specializes in chart extraction (Chart2CSV, Chart2Summary, Chart2Code), table extraction (JSON, HTML, OTSL), and semantic key-value pair extraction.
 
 The model builds on [LLaVA-NeXT](llava_next) with several architectural innovations:
 
@@ -34,16 +34,16 @@ The model builds on [LLaVA-NeXT](llava_next) with several architectural innovati
 3. **DeepStack Feature Injection** with 8 vision-to-LLM injection points:
    - *LayerDeepstack*: features from 4 vision encoder depths are projected into different early LLM layers.
    - *SpatialDeepstack*: deepest vision features are split into 4 spatial groups and injected at later LLM layers.
-4. **Language Model**: [Granite 4.0 Micro](https://huggingface.co/ibm-granite/granite-4.0-3b-base) (3B params) with LoRA adapters (rank 256) across all self-attention and MLP layers.
+4. **Language Model**: [Granite 4.1](https://huggingface.co/ibm-granite/granite-4.1-4b-base) (4B params) with LoRA adapters (rank 256) across all self-attention and MLP layers.
 
-The model is delivered as a LoRA adapter (0.5B parameters) on top of the base LLM, enabling single deployments to support both multimodal and text-only workloads. Total parameter count is ~4B.
+The model is delivered as a LoRA adapter on top of the base LLM, enabling single deployments to support both multimodal and text-only workloads. Total parameter count is ~4B.
 
 ```bibtex
-@misc{granite-4.0-3b-vision,
-  title={Granite 4.0 Vision},
+@misc{granite-vision-4.1-4b,
+  title={Granite Vision 4.1},
   author={IBM Granite Vision Team},
   year={2026},
-  url={https://huggingface.co/ibm-granite/granite-4.0-3b-vision}
+  url={https://huggingface.co/ibm-granite/granite-vision-4.1-4b}
 }
 ```
 
@@ -62,7 +62,7 @@ from transformers import pipeline
 
 pipe = pipeline(
     task="image-text-to-text",
-    model="ibm-granite/granite-4.0-3b-vision",
+    model="ibm-granite/granite-vision-4.1-4b",
     device=0,
     torch_dtype=torch.bfloat16,
 )
@@ -86,7 +86,7 @@ pipe(text=messages, max_new_tokens=100, return_full_text=False)
 import torch
 from transformers import AutoProcessor, AutoModelForImageTextToText
 
-model_id = "ibm-granite/granite-4.0-3b-vision"
+model_id = "ibm-granite/granite-vision-4.1-4b"
 
 processor = AutoProcessor.from_pretrained(model_id)
 model = AutoModelForImageTextToText.from_pretrained(
@@ -135,7 +135,7 @@ quant_config = BitsAndBytesConfig(
     bnb_4bit_quant_type="nf4",
 )
 
-model_id = "ibm-granite/granite-4.0-3b-vision"
+model_id = "ibm-granite/granite-vision-4.1-4b"
 processor = AutoProcessor.from_pretrained(model_id)
 model = AutoModelForImageTextToText.from_pretrained(
     model_id, quantization_config=quant_config, device_map="auto"

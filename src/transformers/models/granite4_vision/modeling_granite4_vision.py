@@ -810,12 +810,16 @@ class Granite4VisionForConditionalGeneration(Granite4VisionPreTrainedModel, Gene
         return model_inputs
 
     def merge_lora_adapters(self):
-        """Merge LoRA adapter weights into base weights in-place and disable adapter toggling."""
+        """Merge LoRA adapter weights into base weights and replace PEFT wrappers with base layers."""
         from peft.tuners.tuners_utils import BaseTunerLayer
 
         for _, module in self.named_modules():
-            if isinstance(module, BaseTunerLayer):
-                module.merge()
+            for attr_name, child in list(module.named_children()):
+                if isinstance(child, BaseTunerLayer):
+                    child.merge()
+                    setattr(module, attr_name, child.get_base_layer())
+        if hasattr(self, "peft_config"):
+            del self.peft_config
         self._hf_peft_config_loaded = False
         return self
 

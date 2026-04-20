@@ -189,7 +189,7 @@ class Granite4VisionModelTest(VLMModelTest, unittest.TestCase):
 
 @require_torch
 class Granite4VisionIntegrationTest(unittest.TestCase):
-    model_id = "ibm-granite/granite-4.0-3b-vision"
+    model_id = "ibm-granite/granite-vision-4.1-4b"
 
     def setUp(self):
         self.processor = AutoProcessor.from_pretrained(self.model_id)

@@ -457,6 +457,16 @@ def _build_checkpoint_conversion_mapping():
                 operations=[MergeModulelist(dim=0)],
             ),
         ],
+        "granite4_vision": [
+            # SiglipVisionModel has `base_model_prefix = "vision_model"`, so checkpoint keys
+            # include `vision_model.` nesting (`model.vision_tower.vision_model.encoder.*`),
+            # but our model accesses it as a flat submodule (`model.vision_tower.encoder.*`).
+            # Strip the extra nesting on load.
+            WeightRenaming(
+                source_patterns=r"(model\.vision_tower\.)vision_model\.",
+                target_patterns=r"\1",
+            ),
+        ],
         "legacy": [
             WeightRenaming(
                 source_patterns="LayerNorm.gamma",
